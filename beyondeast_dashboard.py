@@ -251,8 +251,9 @@ def build_levers(d, c):
 # ══════════════════════════════════════════════════════════════════════════════
 def build_cashflow(d, c, periods=12, weekly=False):
     """
-    Build a forward cash flow projection table with proper operating line items.
-    Sections: (A) Operating Receipts/Payments, (B) WC Initiatives, (C) Net & Cumulative.
+    Direct-method cash flow statement.
+    Shows opening balance, receipts, payments, WC initiatives, CAPEX, closing balance.
+    All values in PKR (not millions — divide by 1e6 in display).
     """
     n = periods
     step_label = "Week" if weekly else "Month"
@@ -262,95 +263,134 @@ def build_cashflow(d, c, periods=12, weekly=False):
     for i in range(1, n + 1):
         if weekly:
             dt = today + timedelta(weeks=i)
-            labels.append(f"Wk {i} ({dt.strftime('%d %b')})")
+            labels.append(f"Wk {i}\n{dt.strftime('%d %b')}")
         else:
             mo = (today.month - 1 + i) % 12 + 1
             yr = today.year + (today.month - 1 + i) // 12
             labels.append(datetime(yr, mo, 1).strftime("%b-%y"))
 
-    # ── Operating line items (YTD run-rate, annualised) ───────────────────────
-    # Use YTD actuals * 12/8 for annualised run-rate
-    ann_rev   = d["ytd_net_rev"]      * 12 / 8
-    ann_cogs  = d["ytd_cogs"]         * 12 / 8
-    ann_store = d["ytd_stores_opex"]  * 12 / 8
-    ann_corp  = d["ytd_corp_oh"]      * 12 / 8
+    div = 52.0 if weekly else 12.0
 
-    div = 52 if weekly else 12
-    per_rev   =  ann_rev   / div
-    per_cogs  = -ann_cogs  / div   # negative (cash out)
-    per_store = -ann_store / div   # negative
-    per_corp  = -ann_corp  / div   # negative
-    per_gp    = [per_rev + per_cogs] * n
-    per_ebitda= [per_rev + per_cogs + per_store + per_corp] * n
+    # ── A. Operating receipts ─────────────────────────────────────────────────
+    # Sales: YTD net revenue annualised, collected with ~DSO lag
+    # DSO lag: ~30% collected same period, 60% next, 10% period+2
+    ann_net_rev   = d["ytd_net_rev"]   * 12 / 8
+    mo_sales      = ann_net_rev / div   # sales booked per period
 
-    rev_cf   = [per_rev]   * n
-    cogs_cf  = [per_cogs]  * n
-    store_cf = [per_store] * n
-    corp_cf  = [per_corp]  * n
+    # Build collections: 70% current period, 25% next, 5% two periods later
+    sales_arr = [mo_sales] * n
+    collections = []
+    for i in range(n):
+        col = (sales_arr[i] * 0.70
+               + (sales_arr[i-1] * 0.25 if i >= 1 else 0)
+               + (sales_arr[i-2] * 0.05 if i >= 2 else 0))
+        collections.append(col)
 
-    # ── WC initiative ramp profiles ────────────────────────────────────────────
+    # Dead stock clearance proceeds (one-time, front-loaded)
     def ramp(total, profile):
-        p = profile[:n]
+        p = list(profile[:n])
         while len(p) < n: p.append(p[-1] if p else 0)
         s = sum(p)
-        return [total * w / s if s else 0 for w in p]
+        return [total * w / s if s else 0.0 for w in p]
 
     if weekly:
-        dead_profile = [8,9,10,10,9,8,7,6,5,4,3,2] + [1]*max(0,n-12)
-        wip_profile  = [0,0,0,0,1,2,3,4,5,5,5,5]   + [4]*max(0,n-12)
-        fg_profile   = [0,0,1,1,2,2,3,3,4,4,4,4]   + [3]*max(0,n-12)
-        oth_profile  = [0,0,0,1,1,2,2,3,3,3,3,3]   + [2]*max(0,n-12)
-        mg_profile   = [1,1,1,1,1,1,1,1,1,1,1,1]   + [1]*max(0,n-12)
-        ecom_profile = [3,3,2,2,1,1,1,1,0,0,0,0]   + [0]*max(0,n-12)
+        dead_p  = [8,9,10,10,9,8,7,6,5,4,3,2]+[1]*max(0,n-12)
+        wip_p   = [0,0,0,0,1,2,3,4,5,5,5,5]  +[4]*max(0,n-12)
+        fg_p    = [0,0,1,1,2,2,3,3,4,4,4,4]  +[3]*max(0,n-12)
+        oth_p   = [0,0,0,1,1,2,2,3,3,3,3,3]  +[2]*max(0,n-12)
+        mg_p    = [1]*n
+        ecom_p  = [3,3,2,2,1,1,1,1,0,0,0,0]  +[0]*max(0,n-12)
+        capex_p = [0,0,0,0,1,1,0,0,0,0,0,0]  +[0]*max(0,n-12)   # machines wk 5-6
     else:
-        dead_profile = [15,20,20,15,10,8,5,3,2,1,1,0]
-        wip_profile  = [0,0,5,10,15,15,15,12,10,8,6,4]
-        fg_profile   = [0,0,2,5,8,10,12,14,14,12,12,11]
-        oth_profile  = [0,0,2,5,10,15,18,15,12,10,8,5]
-        mg_profile   = [8,8,8,9,9,9,9,9,9,9,9,9]
-        ecom_profile = [20,20,15,15,10,10,5,5,0,0,0,0]
+        dead_p  = [15,20,20,15,10,8,5,3,2,1,1,0]
+        wip_p   = [0,0,5,10,15,15,15,12,10,8,6,4]
+        fg_p    = [0,0,2,5,8,10,12,14,14,12,12,11]
+        oth_p   = [0,0,2,5,10,15,18,15,12,10,8,5]
+        mg_p    = [8,8,8,9,9,9,9,9,9,9,9,9]
+        ecom_p  = [20,20,15,15,10,10,5,5,0,0,0,0]
+        capex_p = [0,1,1,0,0,0,0,0,0,0,0,0]               # CAPEX month 2-3
 
-    dead_cf = ramp(c["dead_release"],  dead_profile[:n])
-    wip_cf  = ramp(c["wip_release"],   wip_profile[:n])
-    fg_cf   = ramp(c["fg_release"],    fg_profile[:n])
-    oth_cf  = ramp(abs(c["oth_relief"]) if c["oth_relief"] > 0 else 0, oth_profile[:n])
-    mg_cf   = ramp(c["mg_relief"],     mg_profile[:n])   # negative = cash out (paydown)
-    ecom_cf = ramp(c["rec_release"],   ecom_profile[:n])
+    dead_cf = ramp(c["dead_release"],  dead_p)
+    ecom_cf = ramp(c["rec_release"],   ecom_p)
 
-    net_cf = [
-        rev_cf[i] + cogs_cf[i] + store_cf[i] + corp_cf[i]
-        + dead_cf[i] + wip_cf[i] + fg_cf[i]
-        + oth_cf[i] + mg_cf[i] + ecom_cf[i]
-        for i in range(n)
-    ]
+    total_receipts = [collections[i] + dead_cf[i] + ecom_cf[i] for i in range(n)]
 
-    cum = 0
-    cum_cf = []
+    # ── B. Operating payments ─────────────────────────────────────────────────
+    # COGS: paid with DPO lag (MG ~248 days, others ~171 days avg ~30-day payment lag)
+    ann_cogs   = d["ytd_cogs"]        * 12 / 8
+    ann_store  = d["ytd_stores_opex"] * 12 / 8
+    ann_corp   = d["ytd_corp_oh"]     * 12 / 8
+    mo_cogs    = ann_cogs  / div
+    mo_store   = ann_store / div
+    mo_corp    = ann_corp  / div
+
+    # COGS payments: 40% current period (immediate suppliers), 60% next period (DPO lag)
+    cogs_payments = []
+    for i in range(n):
+        pay = (mo_cogs * 0.40 + (mo_cogs * 0.60 if i >= 1 else 0))
+        cogs_payments.append(-pay)
+
+    store_payments = [-mo_store] * n   # rent/salaries paid monthly — no lag
+    corp_payments  = [-mo_corp]  * n   # corp overhead — monthly
+
+    # ── C. WC initiative cash flows ────────────────────────────────────────────
+    wip_cf  = ramp(c["wip_release"],   wip_p)
+    fg_cf   = ramp(c["fg_release"],    fg_p)
+    oth_cf  = ramp(max(0.0, c["oth_relief"]), oth_p)
+    mg_cf   = ramp(c["mg_relief"],     mg_p)   # negative = paydown outflow
+
+    # ── D. CAPEX (machine purchase) ────────────────────────────────────────────
+    capex_cf = ramp(-c["capex"], capex_p)   # negative = cash out
+
+    # ── E. Net & balance ──────────────────────────────────────────────────────
+    op_ebitda = [collections[i] + cogs_payments[i] + store_payments[i] + corp_payments[i]
+                 for i in range(n)]
+
+    wc_net = [dead_cf[i] + wip_cf[i] + fg_cf[i] + oth_cf[i] + mg_cf[i] + ecom_cf[i]
+              for i in range(n)]
+
+    net_cf = [op_ebitda[i] + wc_net[i] + capex_cf[i] for i in range(n)]
+
+    # Opening / closing balance
+    opening = []
+    closing = []
+    bal = d["cash_bank"]
     for v in net_cf:
-        cum += v
-        cum_cf.append(cum)
+        opening.append(bal)
+        bal += v
+        closing.append(bal)
+
+    def m(v): return round(v / 1e6, 1)
 
     df = pd.DataFrame({
-        f"{step_label}":                  labels,
-        # A. Operating
-        "Sales Receipts (PKR M)":         [round(v/1e6,1) for v in rev_cf],
-        "COGS Payments (PKR M)":          [round(v/1e6,1) for v in cogs_cf],
-        "Gross Profit (PKR M)":           [round(v/1e6,1) for v in per_gp],
-        "Stores Opex (PKR M)":            [round(v/1e6,1) for v in store_cf],
-        "Corp Overhead (PKR M)":          [round(v/1e6,1) for v in corp_cf],
-        "Operating EBITDA (PKR M)":       [round(v/1e6,1) for v in per_ebitda],
-        # B. WC Initiatives
-        "Dead Stock Proceeds (PKR M)":    [round(v/1e6,1) for v in dead_cf],
-        "WIP Release (PKR M)":            [round(v/1e6,1) for v in wip_cf],
-        "FG Release (PKR M)":             [round(v/1e6,1) for v in fg_cf],
-        "Other Pay. Extension (PKR M)":   [round(v/1e6,1) for v in oth_cf],
-        "MG Pay-Down (PKR M)":            [round(v/1e6,1) for v in mg_cf],
-        "E-com Collection (PKR M)":       [round(v/1e6,1) for v in ecom_cf],
-        # C. Totals
-        "Net Cash Flow (PKR M)":          [round(v/1e6,1) for v in net_cf],
-        "Cumulative (PKR M)":             [round(v/1e6,1) for v in cum_cf],
+        step_label:                        labels,
+        # Balance
+        "Opening Balance (PKR M)":         [m(v) for v in opening],
+        # A. Receipts
+        "Sales Collections (PKR M)":       [m(v) for v in collections],
+        "Dead Stock Proceeds (PKR M)":     [m(v) for v in dead_cf],
+        "E-com Collections (PKR M)":       [m(v) for v in ecom_cf],
+        "Total Receipts (PKR M)":          [m(v) for v in total_receipts],
+        # B. Payments
+        "COGS Payments (PKR M)":           [m(v) for v in cogs_payments],
+        "Stores Opex (PKR M)":             [m(v) for v in store_payments],
+        "Corp Overhead (PKR M)":           [m(v) for v in corp_payments],
+        "Operating EBITDA (PKR M)":        [m(v) for v in op_ebitda],
+        # C. WC Initiatives
+        "WIP Release (PKR M)":             [m(v) for v in wip_cf],
+        "FG Release (PKR M)":              [m(v) for v in fg_cf],
+        "Other Pay. Extension (PKR M)":    [m(v) for v in oth_cf],
+        "MG Pay-Down (PKR M)":             [m(v) for v in mg_cf],
+        # D. CAPEX
+        "Machine CAPEX (PKR M)":           [m(v) for v in capex_cf],
+        # E. Net & Balance
+        "Net Cash Flow (PKR M)":           [m(v) for v in net_cf],
+        "Closing Balance (PKR M)":         [m(v) for v in closing],
     })
-    return df
+    # Flag periods where closing balance < 0
+    df["⚠ Alert"] = df["Closing Balance (PKR M)"].apply(
+        lambda v: "🔴 Cash Deficit" if v < 0 else ("🟡 Watch" if v < 10 else "🟢 OK"))
+    return df, closing
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  FORMATTERS
@@ -398,10 +438,8 @@ st.set_page_config(page_title="Beyond East — WC Command Centre",
                    page_icon="🎯", layout="wide",
                    initial_sidebar_state="expanded")
 
-st.markdown("""
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<style>
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 /* ══ ROOT — set font family once, let it cascade ══ */
 :root {
     --font-main: 'Inter', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
@@ -1253,7 +1291,7 @@ elif "Machinery" in page:
             z=z, x=[f"PKR {s}" for s in sav_range], y=[f"{p//1000}K pcs" for p in pcs_range],
             colorscale="RdYlGn",
             text=[[f"{v:.1f}M" for v in row] for row in z], texttemplate="%{text}",
-            colorbar=dict(title="PKR M", tickfont=dict(color="#e6edf3"), titlefont=dict(color="#e6edf3")),
+            colorbar=dict(title=dict(text="PKR M", font=dict(color="#e6edf3")), tickfont=dict(color="#e6edf3")),
         ))
         fig_ht.update_layout(**{**CHART, "height":310,
                                 "xaxis":dict(title="Saving/Piece (PKR)"),
@@ -1262,174 +1300,230 @@ elif "Machinery" in page:
         st.caption(f"Base case: {c['capacity']//1000}K pcs × PKR {d['outsource_cost_pc']-d['inhouse_cost_pc']} = {pkr(c['net_sav'])}/yr")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PAGE 5 — CASH FLOW FORECAST  (monthly + weekly, head-wise)
+#  PAGE 5 — CASH FLOW FORECAST
 # ══════════════════════════════════════════════════════════════════════════════
 elif "Cash Flow" in page:
     d = st.session_state.d
     c = calc(d)
 
-    st.title("Cash Flow Forecast — Head-Wise")
-    st.caption("Forward cash requirements and releases by category, based on your current Command Centre inputs.")
+    st.title("Cash Flow Forecast")
+    st.caption("Direct-method statement: opening balance → receipts → payments → WC initiatives → CAPEX → closing balance.")
 
-    # ── KPIs ──────────────────────────────────────────────────────────────────
-    monthly_burn = d["ytd_ebitda"] * 12 / 8 / 12
-    k1,k2,k3,k4 = st.columns(4)
-    k1.metric("Monthly Op. Cash Burn",   pkr(monthly_burn),      delta="Based on YTD run-rate", delta_color="inverse")
-    k2.metric("Total WC Release (12M)",  pkr(c["total_wc_release"]))
-    k3.metric("Cash & Bank (Current)",   pkr(d["cash_bank"]))
-    runway_months = d["cash_bank"] / abs(monthly_burn) if monthly_burn < 0 else 99
-    k4.metric("Cash Runway",             f"{runway_months:.1f} months",
-              delta="at current burn rate", delta_color="inverse" if runway_months < 3 else "normal")
+    # ── Build both views ──────────────────────────────────────────────────────
+    df_m, closing_m = build_cashflow(d, c, periods=12, weekly=False)
+    df_w, closing_w = build_cashflow(d, c, periods=12, weekly=True)
+
+    # ── KPI row ───────────────────────────────────────────────────────────────
+    ann_rev_run   = d["ytd_net_rev"]  * 12 / 8
+    ann_cogs_run  = d["ytd_cogs"]     * 12 / 8
+    mo_burn       = (d["ytd_ebitda"]  * 12 / 8) / 12
+    min_bal       = min(closing_m)
+    end_bal       = closing_m[-1]
+    deficit_months = sum(1 for v in closing_m if v < 0)
+
+    k1,k2,k3,k4,k5 = st.columns(5)
+    k1.metric("Opening Cash",         pkr(d["cash_bank"]))
+    k2.metric("Monthly Op. Burn",     pkr(mo_burn), delta="YTD run-rate", delta_color="inverse")
+    k3.metric("12-Month End Balance", pkr(end_bal),
+              delta="🔴 Deficit" if end_bal < 0 else "🟢 Positive", delta_color="inverse" if end_bal < 0 else "normal")
+    k4.metric("Lowest Balance",       pkr(min_bal),
+              delta=f"Month {closing_m.index(min_bal)+1}", delta_color="inverse" if min_bal < 0 else "normal")
+    k5.metric("Deficit Months",       f"{deficit_months} of 12",
+              delta="Action needed" if deficit_months > 0 else "No deficit", delta_color="inverse" if deficit_months > 0 else "normal")
+
+    if deficit_months > 0:
+        st.markdown(f"""<div class="alert">
+<b>⚠ Cash Deficit Warning:</b> Closing balance goes negative in {deficit_months} month(s).
+Lowest point: <b>{pkr(min_bal)}</b> in Month {closing_m.index(min_bal)+1}.
+Immediate action required — accelerate dead stock clearance and e-com collections.
+</div>""", unsafe_allow_html=True)
+    else:
+        st.markdown(f"""<div class="info">
+<b>Cash position is positive throughout the 12-month forecast.</b>
+Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC levers are executed.
+</div>""", unsafe_allow_html=True)
 
     st.markdown("---")
 
-    tab_m, tab_w = st.tabs(["📅 Monthly (12 months)", "📆 Weekly (12 weeks)"])
-
-    def style_df(df):
-        """Colour positive green, negative red for cash columns."""
+    def style_cf(df):
         def colour(val):
             try:
                 v = float(val)
-                if v > 0: return "color:#3fb950;font-weight:600"
-                if v < 0: return "color:#f85149;font-weight:600"
+                if v > 0:  return "color:#3fb950;font-weight:600"
+                if v < 0:  return "color:#f85149;font-weight:600"
             except: pass
-            return ""
-        cash_cols = [c for c in df.columns if "PKR M" in c]
-        try:
-            return df.style.map(colour, subset=cash_cols)        # pandas ≥ 2.1
-        except AttributeError:
-            return df.style.applymap(colour, subset=cash_cols)   # pandas < 2.1
+            return "color:#e6edf3"
+        num_cols = [col for col in df.columns if "PKR M" in col]
+        try:    return df.style.map(colour, subset=num_cols)
+        except: return df.style.applymap(colour, subset=num_cols)
 
-    with tab_m:
-        st.markdown('<div class="sh">Monthly Cash Flow — Next 12 Months (PKR M)</div>', unsafe_allow_html=True)
-        df_m = build_cashflow(d, c, periods=12, weekly=False)
+    tab_m_view, tab_w_view = st.tabs(["📅 Monthly (12 months)", "📆 Weekly (12 weeks)"])
 
-        # Show operating and WC sections in sub-tabs
-        sub_full, sub_ops, sub_wc = st.tabs(["Full View", "Operating Only", "WC Initiatives Only"])
+    # ────────────────────────────── MONTHLY ──────────────────────────────────
+    with tab_m_view:
+        # Summary table with sections
+        st.markdown('<div class="sh">Monthly Statement — All Heads (PKR M)</div>', unsafe_allow_html=True)
 
-        op_cols  = ["Month","Sales Receipts (PKR M)","COGS Payments (PKR M)","Gross Profit (PKR M)",
-                    "Stores Opex (PKR M)","Corp Overhead (PKR M)","Operating EBITDA (PKR M)"]
-        wc_cols  = ["Month","Dead Stock Proceeds (PKR M)","WIP Release (PKR M)","FG Release (PKR M)",
-                    "Other Pay. Extension (PKR M)","MG Pay-Down (PKR M)","E-com Collection (PKR M)",
-                    "Net Cash Flow (PKR M)","Cumulative (PKR M)"]
+        # Sub-tabs for different views
+        t_full, t_rec, t_pay, t_wc, t_bal = st.tabs([
+            "Full Statement", "Receipts", "Payments", "WC Initiatives", "Balance Sheet"])
 
-        with sub_full:
-            st.dataframe(style_df(df_m), hide_index=True, use_container_width=True, height=480)
-        with sub_ops:
-            st.caption("Operating P&L cash flows — YTD run-rate annualised (12/8 months)")
-            st.dataframe(style_df(df_m[op_cols]), hide_index=True, use_container_width=True)
-        with sub_wc:
-            st.caption("WC initiative cash releases/obligations on top of operating flows")
-            st.dataframe(style_df(df_m[wc_cols]), hide_index=True, use_container_width=True)
+        rec_cols = ["Month","Opening Balance (PKR M)","Sales Collections (PKR M)",
+                    "Dead Stock Proceeds (PKR M)","E-com Collections (PKR M)","Total Receipts (PKR M)"]
+        pay_cols = ["Month","COGS Payments (PKR M)","Stores Opex (PKR M)",
+                    "Corp Overhead (PKR M)","Operating EBITDA (PKR M)","Machine CAPEX (PKR M)"]
+        wc_cols  = ["Month","WIP Release (PKR M)","FG Release (PKR M)",
+                    "Other Pay. Extension (PKR M)","MG Pay-Down (PKR M)"]
+        bal_cols = ["Month","Opening Balance (PKR M)","Net Cash Flow (PKR M)",
+                    "Closing Balance (PKR M)","⚠ Alert"]
 
-        # Chart: operating vs WC stacked
-        st.markdown('<div class="sh">Monthly Cash Flow — Operating vs WC Initiatives</div>', unsafe_allow_html=True)
-        fig_cf = go.Figure()
-        fig_cf.add_trace(go.Bar(name="Sales Receipts",       x=df_m["Month"], y=df_m["Sales Receipts (PKR M)"].tolist(),      marker_color="#3fb950", opacity=0.85))
-        fig_cf.add_trace(go.Bar(name="COGS Payments",        x=df_m["Month"], y=df_m["COGS Payments (PKR M)"].tolist(),        marker_color="#f85149", opacity=0.85))
-        fig_cf.add_trace(go.Bar(name="Stores Opex",          x=df_m["Month"], y=df_m["Stores Opex (PKR M)"].tolist(),          marker_color="#d29922", opacity=0.85))
-        fig_cf.add_trace(go.Bar(name="Corp Overhead",        x=df_m["Month"], y=df_m["Corp Overhead (PKR M)"].tolist(),        marker_color="#bc8cff", opacity=0.85))
-        fig_cf.add_trace(go.Bar(name="Dead Stock Proceeds",  x=df_m["Month"], y=df_m["Dead Stock Proceeds (PKR M)"].tolist(),  marker_color="#58a6ff", opacity=0.85))
-        fig_cf.add_trace(go.Bar(name="WIP Release",          x=df_m["Month"], y=df_m["WIP Release (PKR M)"].tolist(),          marker_color="#388bfd", opacity=0.85))
-        fig_cf.add_trace(go.Bar(name="FG + Payables + E-com",x=df_m["Month"],
-                                y=[a+b+c_v+d_v for a,b,c_v,d_v in zip(
-                                    df_m["FG Release (PKR M)"].tolist(),
-                                    df_m["Other Pay. Extension (PKR M)"].tolist(),
-                                    df_m["MG Pay-Down (PKR M)"].tolist(),
-                                    df_m["E-com Collection (PKR M)"].tolist())],
-                                marker_color="#f0883e", opacity=0.85))
-        fig_cf.add_trace(go.Scatter(name="Net Cash Flow", x=df_m["Month"],
+        with t_full: st.dataframe(style_cf(df_m), hide_index=True, use_container_width=True, height=460)
+        with t_rec:
+            st.caption("Cash received each month — sales on 70/25/5 collection pattern + one-time WC proceeds")
+            st.dataframe(style_cf(df_m[rec_cols]), hide_index=True, use_container_width=True)
+        with t_pay:
+            st.caption("Cash paid out each month — COGS on 40/60 DPO lag + fixed monthly opex + CAPEX")
+            st.dataframe(style_cf(df_m[pay_cols]), hide_index=True, use_container_width=True)
+        with t_wc:
+            st.caption("One-time WC initiative releases and obligations, ramped over 12 months")
+            st.dataframe(style_cf(df_m[wc_cols]), hide_index=True, use_container_width=True)
+        with t_bal:
+            st.caption("Opening → Net Cash → Closing balance each month with traffic-light alert")
+            st.dataframe(style_cf(df_m[bal_cols]), hide_index=True, use_container_width=True)
+
+        # ── Chart 1: Receipts vs Payments waterfall ──────────────────────────
+        st.markdown('<div class="sh">Monthly Receipts vs Payments</div>', unsafe_allow_html=True)
+        fig_rv = go.Figure()
+        fig_rv.add_trace(go.Bar(name="Sales Collections", x=df_m["Month"],
+                                y=df_m["Sales Collections (PKR M)"].tolist(),
+                                marker_color="#3fb950", opacity=0.9))
+        fig_rv.add_trace(go.Bar(name="Dead Stock + E-com", x=df_m["Month"],
+                                y=[a+b for a,b in zip(
+                                    df_m["Dead Stock Proceeds (PKR M)"].tolist(),
+                                    df_m["E-com Collections (PKR M)"].tolist())],
+                                marker_color="#58a6ff", opacity=0.9))
+        fig_rv.add_trace(go.Bar(name="COGS Payments", x=df_m["Month"],
+                                y=df_m["COGS Payments (PKR M)"].tolist(),
+                                marker_color="#f85149", opacity=0.85))
+        fig_rv.add_trace(go.Bar(name="Stores Opex", x=df_m["Month"],
+                                y=df_m["Stores Opex (PKR M)"].tolist(),
+                                marker_color="#d29922", opacity=0.85))
+        fig_rv.add_trace(go.Bar(name="Corp + CAPEX", x=df_m["Month"],
+                                y=[a+b for a,b in zip(
+                                    df_m["Corp Overhead (PKR M)"].tolist(),
+                                    df_m["Machine CAPEX (PKR M)"].tolist())],
+                                marker_color="#bc8cff", opacity=0.85))
+        fig_rv.add_trace(go.Scatter(name="Net Cash Flow", x=df_m["Month"],
                                     y=df_m["Net Cash Flow (PKR M)"].tolist(),
-                                    mode="lines+markers", line=dict(color="#ffffff", width=2),
-                                    marker=dict(size=7)))
-        fig_cf.add_hline(y=0, line_dash="dot", line_color="#8b949e")
-        fig_cf.update_layout(**{**CHART, "barmode":"stack", "height":370,
+                                    mode="lines+markers", line=dict(color="#ffffff", width=2.5),
+                                    marker=dict(size=8, color=["#3fb950" if v>=0 else "#f85149"
+                                                for v in df_m["Net Cash Flow (PKR M)"].tolist()])))
+        fig_rv.add_hline(y=0, line_dash="dot", line_color="#8b949e")
+        fig_rv.update_layout(**{**CHART, "barmode":"stack", "height":380,
                                 "yaxis":dict(gridcolor="#21262d", title="PKR M"),
                                 "xaxis":dict(gridcolor="#21262d", tickangle=-30)})
-        st.plotly_chart(fig_cf, use_container_width=True)
+        st.plotly_chart(fig_rv, use_container_width=True)
 
-        # Cumulative line
-        st.markdown('<div class="sh">Cumulative Cash Position (Starting from Cash & Bank)</div>', unsafe_allow_html=True)
-        cum_abs = [d["cash_bank"]/1e6 + v for v in df_m["Cumulative (PKR M)"].tolist()]
-        fig_cum = go.Figure(go.Scatter(x=df_m["Month"], y=cum_abs, mode="lines+markers",
-                                        line=dict(color="#3fb950", width=3),
-                                        fill="tozeroy", fillcolor="rgba(63,185,80,0.10)"))
-        fig_cum.add_hline(y=0, line_dash="dash", line_color="#f85149",
-                          annotation_text="  Zero cash line", annotation_font_color="#f85149")
-        fig_cum.add_hline(y=d["cash_bank"]/1e6, line_dash="dot", line_color="#8b949e",
-                          annotation_text=f"  Today: {pkr(d['cash_bank'])}", annotation_font_color="#8b949e")
-        fig_cum.update_layout(**{**CHART, "height":260, "showlegend":False,
+        # ── Chart 2: Cash balance trajectory ─────────────────────────────────
+        st.markdown('<div class="sh">Cash Balance Trajectory — Opening vs Closing</div>', unsafe_allow_html=True)
+        fig_bal = go.Figure()
+        clrs_close = ["#f85149" if v < 0 else ("#d29922" if v < 10 else "#3fb950")
+                      for v in df_m["Closing Balance (PKR M)"].tolist()]
+        fig_bal.add_trace(go.Scatter(name="Opening Balance", x=df_m["Month"],
+                                      y=df_m["Opening Balance (PKR M)"].tolist(),
+                                      mode="lines", line=dict(color="#8b949e", dash="dot", width=1.5)))
+        fig_bal.add_trace(go.Bar(name="Closing Balance", x=df_m["Month"],
+                                  y=df_m["Closing Balance (PKR M)"].tolist(),
+                                  marker_color=clrs_close, opacity=0.85,
+                                  text=[f"{v:.0f}M" for v in df_m["Closing Balance (PKR M)"].tolist()],
+                                  textposition="outside", cliponaxis=False))
+        fig_bal.add_hline(y=0, line_dash="dash", line_color="#f85149",
+                          annotation_text="  Zero line", annotation_font_color="#f85149")
+        fig_bal.add_hline(y=10, line_dash="dot", line_color="#d29922",
+                          annotation_text="  PKR 10M watch threshold", annotation_font_color="#d29922")
+        fig_bal.update_layout(**{**CHART, "barmode":"overlay", "height":300, "showlegend":True,
                                  "yaxis":dict(gridcolor="#21262d", title="PKR M"),
                                  "xaxis":dict(gridcolor="#21262d", tickangle=-30)})
-        st.plotly_chart(fig_cum, use_container_width=True)
+        st.plotly_chart(fig_bal, use_container_width=True)
 
-    with tab_w:
-        st.markdown('<div class="sh">Weekly Cash Flow — Next 12 Weeks (PKR M)</div>', unsafe_allow_html=True)
-        df_w = build_cashflow(d, c, periods=12, weekly=True)
+        # ── Chart 3: WC initiatives contribution ─────────────────────────────
+        st.markdown('<div class="sh">WC Initiative Cash Contributions (Monthly)</div>', unsafe_allow_html=True)
+        fig_wci = go.Figure()
+        fig_wci.add_trace(go.Bar(name="Dead Stock",       x=df_m["Month"], y=df_m["Dead Stock Proceeds (PKR M)"].tolist(),  marker_color="#58a6ff"))
+        fig_wci.add_trace(go.Bar(name="WIP Release",      x=df_m["Month"], y=df_m["WIP Release (PKR M)"].tolist(),          marker_color="#388bfd"))
+        fig_wci.add_trace(go.Bar(name="FG Release",       x=df_m["Month"], y=df_m["FG Release (PKR M)"].tolist(),           marker_color="#3fb950"))
+        fig_wci.add_trace(go.Bar(name="Other Pay. Ext.",  x=df_m["Month"], y=df_m["Other Pay. Extension (PKR M)"].tolist(), marker_color="#d29922"))
+        fig_wci.add_trace(go.Bar(name="MG Pay-Down",      x=df_m["Month"], y=df_m["MG Pay-Down (PKR M)"].tolist(),          marker_color="#f85149"))
+        fig_wci.add_trace(go.Bar(name="E-com",            x=df_m["Month"], y=df_m["E-com Collections (PKR M)"].tolist(),    marker_color="#bc8cff"))
+        fig_wci.add_hline(y=0, line_dash="dot", line_color="#8b949e")
+        fig_wci.update_layout(**{**CHART, "barmode":"stack", "height":280,
+                                 "yaxis":dict(gridcolor="#21262d", title="PKR M"),
+                                 "xaxis":dict(gridcolor="#21262d", tickangle=-30)})
+        st.plotly_chart(fig_wci, use_container_width=True)
 
-        sub_wf, sub_wo, sub_ww = st.tabs(["Full View","Operating Only","WC Initiatives Only"])
-        wk_op  = ["Week","Sales Receipts (PKR M)","COGS Payments (PKR M)","Gross Profit (PKR M)",
-                  "Stores Opex (PKR M)","Corp Overhead (PKR M)","Operating EBITDA (PKR M)"]
-        wk_wc  = ["Week","Dead Stock Proceeds (PKR M)","WIP Release (PKR M)","FG Release (PKR M)",
-                  "Other Pay. Extension (PKR M)","MG Pay-Down (PKR M)","E-com Collection (PKR M)",
-                  "Net Cash Flow (PKR M)","Cumulative (PKR M)"]
-        with sub_wf: st.dataframe(style_df(df_w), hide_index=True, use_container_width=True, height=480)
-        with sub_wo: st.dataframe(style_df(df_w[wk_op]), hide_index=True, use_container_width=True)
-        with sub_ww: st.dataframe(style_df(df_w[wk_wc]), hide_index=True, use_container_width=True)
+    # ────────────────────────────── WEEKLY ───────────────────────────────────
+    with tab_w_view:
+        st.markdown('<div class="sh">Weekly Statement — Next 12 Weeks (PKR M)</div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="sh">Weekly Net Cash Flow</div>', unsafe_allow_html=True)
+        wt_full, wt_bal = st.tabs(["Full View", "Balance Only"])
+        wbal_cols = ["Week","Opening Balance (PKR M)","Total Receipts (PKR M)",
+                     "Operating EBITDA (PKR M)","Net Cash Flow (PKR M)","Closing Balance (PKR M)","⚠ Alert"]
+        with wt_full: st.dataframe(style_cf(df_w), hide_index=True, use_container_width=True, height=460)
+        with wt_bal:  st.dataframe(style_cf(df_w[wbal_cols]), hide_index=True, use_container_width=True)
+
+        # Weekly receipts vs payments
+        st.markdown('<div class="sh">Weekly Receipts vs Payments</div>', unsafe_allow_html=True)
         fig_wk = go.Figure()
-        fig_wk.add_trace(go.Bar(x=df_w["Week"], y=df_w["Net Cash Flow (PKR M)"].tolist(),
-                                 marker_color=["#3fb950" if v>=0 else "#f85149"
-                                               for v in df_w["Net Cash Flow (PKR M)"].tolist()],
-                                 text=[f"{v:.1f}M" for v in df_w["Net Cash Flow (PKR M)"].tolist()],
-                                 textposition="outside", cliponaxis=False))
+        fig_wk.add_trace(go.Bar(name="Total Receipts", x=df_w["Week"],
+                                 y=df_w["Total Receipts (PKR M)"].tolist(),
+                                 marker_color="#3fb950", opacity=0.9))
+        fig_wk.add_trace(go.Bar(name="COGS Payments", x=df_w["Week"],
+                                 y=df_w["COGS Payments (PKR M)"].tolist(), marker_color="#f85149", opacity=0.85))
+        fig_wk.add_trace(go.Bar(name="Opex + Corp",   x=df_w["Week"],
+                                 y=[a+b for a,b in zip(df_w["Stores Opex (PKR M)"].tolist(),
+                                                       df_w["Corp Overhead (PKR M)"].tolist())],
+                                 marker_color="#d29922", opacity=0.85))
+        fig_wk.add_trace(go.Scatter(name="Net",        x=df_w["Week"],
+                                     y=df_w["Net Cash Flow (PKR M)"].tolist(),
+                                     mode="lines+markers", line=dict(color="#ffffff", width=2),
+                                     marker=dict(size=7)))
         fig_wk.add_hline(y=0, line_dash="dot", line_color="#8b949e")
-        fig_wk.update_layout(**{**CHART, "height":280, "showlegend":False,
+        fig_wk.update_layout(**{**CHART, "barmode":"stack", "height":300,
                                 "yaxis":dict(gridcolor="#21262d", title="PKR M"),
                                 "xaxis":dict(gridcolor="#21262d", tickangle=-30, tickfont=dict(size=9))})
         st.plotly_chart(fig_wk, use_container_width=True)
 
-        st.markdown('<div class="sh">Weekly Cash by Head (Stacked)</div>', unsafe_allow_html=True)
-        fig_wh = go.Figure()
-        wc_heads = [
-            ("Sales Receipts",    "Sales Receipts (PKR M)",         "#3fb950"),
-            ("COGS Payments",     "COGS Payments (PKR M)",          "#f85149"),
-            ("Stores + Corp OH",  "Operating EBITDA (PKR M)",       "#d29922"),
-            ("Dead Stock",        "Dead Stock Proceeds (PKR M)",    "#58a6ff"),
-            ("WIP Release",       "WIP Release (PKR M)",            "#388bfd"),
-            ("FG + Others",       "FG Release (PKR M)",             "#f0883e"),
-            ("MG Pay-Down",       "MG Pay-Down (PKR M)",            "#bc8cff"),
-            ("E-com",             "E-com Collection (PKR M)",       "#8b949e"),
-        ]
-        for name, col_name, clr in wc_heads:
-            if col_name in df_w.columns:
-                fig_wh.add_trace(go.Bar(name=name, x=df_w["Week"],
-                                         y=df_w[col_name].tolist(), marker_color=clr, opacity=0.85))
-        fig_wh.add_hline(y=0, line_dash="dot", line_color="#8b949e")
-        fig_wh.update_layout(**{**CHART, "barmode":"stack", "height":320,
+        # Weekly balance bar
+        st.markdown('<div class="sh">Weekly Closing Balance</div>', unsafe_allow_html=True)
+        wk_close = df_w["Closing Balance (PKR M)"].tolist()
+        fig_wb = go.Figure(go.Bar(x=df_w["Week"], y=wk_close,
+                                   marker_color=["#f85149" if v<0 else ("#d29922" if v<10 else "#3fb950")
+                                                 for v in wk_close],
+                                   text=[f"{v:.0f}M" for v in wk_close],
+                                   textposition="outside", cliponaxis=False))
+        fig_wb.add_hline(y=0, line_dash="dash", line_color="#f85149")
+        fig_wb.update_layout(**{**CHART, "height":260, "showlegend":False,
                                 "yaxis":dict(gridcolor="#21262d", title="PKR M"),
                                 "xaxis":dict(gridcolor="#21262d", tickangle=-30, tickfont=dict(size=9))})
-        st.plotly_chart(fig_wh, use_container_width=True)
+        st.plotly_chart(fig_wb, use_container_width=True)
 
-    # ── Assumptions note ──────────────────────────────────────────────────────
-    ann_rev_disp  = d["ytd_net_rev"]  * 12 / 8
-    ann_cogs_disp = d["ytd_cogs"]     * 12 / 8
-    ann_op_disp   = (d["ytd_stores_opex"] + d["ytd_corp_oh"]) * 12 / 8
+    # ── Methodology note ──────────────────────────────────────────────────────
     st.markdown("---")
+    ann_rev_r  = d["ytd_net_rev"]  * 12 / 8
+    ann_cogs_r = d["ytd_cogs"]     * 12 / 8
+    ann_op_r   = (d["ytd_stores_opex"] + d["ytd_corp_oh"]) * 12 / 8
     st.markdown(f"""<div class="info">
-<b>How this cash flow is built:</b><br>
-<b>A. Operating Flows</b> (YTD actuals × 12/8 annualised, then ÷ periods):<br>
-&nbsp;&nbsp;• Sales Receipts: {pkr(ann_rev_disp)}/yr → {pkr(ann_rev_disp/12)}/month<br>
-&nbsp;&nbsp;• COGS Payments: ({pkr(ann_cogs_disp)}/yr) — cash to suppliers<br>
-&nbsp;&nbsp;• Stores + Corp Opex: ({pkr(ann_op_disp)}/yr) — fixed operating outflows<br>
-&nbsp;&nbsp;• Operating EBITDA = Receipts − COGS − Opex ({pkr(d['ytd_ebitda']*12/8)}/yr run-rate)<br><br>
-<b>B. WC Initiative Flows</b> (one-time releases ramped over time):<br>
-&nbsp;&nbsp;• Dead stock proceeds — front-loaded, most cash in months 1–4<br>
-&nbsp;&nbsp;• WIP release — starts Month 3 when EMB machines installed<br>
-&nbsp;&nbsp;• FG release — gradual as intake freeze reduces inventory<br>
-&nbsp;&nbsp;• Other payables extension — ramps as vendor terms renegotiated<br>
-&nbsp;&nbsp;• MG pay-down — fixed monthly outflow per agreed schedule<br>
-&nbsp;&nbsp;• E-com collection — immediate, front-loaded<br><br>
-Change any input in <b>Command Centre → Edit Assumptions</b> and all flows update automatically.
+<b>How this forecast is built (direct method):</b><br>
+<b>Receipts:</b> Sales collected 70% current / 25% next / 5% two periods later (DSO smoothing) |
+{pkr(ann_rev_r)}/yr run-rate → {pkr(ann_rev_r/12)}/month |
+Dead stock clearance front-loaded months 1–4 | E-com immediate<br>
+<b>Payments:</b> COGS paid 40% current / 60% next period (DPO lag) |
+{pkr(ann_cogs_r)}/yr → {pkr(ann_cogs_r/12)}/month |
+Stores opex {pkr(d['ytd_stores_opex']*12/8/12)}/mo + Corp OH {pkr(d['ytd_corp_oh']*12/8/12)}/mo — fixed, no lag |
+Machine CAPEX {pkr(c['capex'])} split across months 2–3<br>
+<b>WC Initiatives:</b> WIP release starts Month 3 (machines installed) |
+FG release ramps as intake freeze takes hold |
+Other payables extension builds through renegotiations |
+MG pay-down is a fixed monthly obligation<br>
+<b>Change any input in Command Centre</b> and the entire forecast recalculates instantly.
 </div>""", unsafe_allow_html=True)

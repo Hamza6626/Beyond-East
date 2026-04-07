@@ -399,61 +399,175 @@ st.set_page_config(page_title="Beyond East — WC Command Centre",
                    initial_sidebar_state="expanded")
 
 st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-/* ── Base font — readable everywhere ── */
-html, body, [class*="css"], .stMarkdown, .stText, p, li, td, th, label, span {
-    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
-    font-size: 15px !important;
-    line-height: 1.65 !important;
-    color: #e6edf3 !important;
+/* ══ ROOT — set font family once, let it cascade ══ */
+:root {
+    --font-main: 'Inter', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+    --color-text: #e6edf3;
+    --color-muted: #8b949e;
+    --color-border: #30363d;
+    --color-card: #161b22;
+    --color-bg: #0d1117;
 }
-/* ── Sidebar ── */
-section[data-testid="stSidebar"]     { background:#0d1117; }
-section[data-testid="stSidebar"] *   { color:#e6edf3 !important; font-size:14px !important; }
-/* ── Main padding ── */
-.main .block-container { padding-top:1.2rem; padding-bottom:2.5rem; max-width:1400px; }
-/* ── Metric cards ── */
-div[data-testid="metric-container"]  { background:#161b22; border:1px solid #30363d;
-                                       border-radius:12px; padding:16px 20px; }
+
+/* ══ Global text — single selector, no war with Streamlit ══ */
+html, body { font-family: var(--font-main); background: var(--color-bg); }
+
+.stApp, .stApp * {
+    font-family: var(--font-main) !important;
+}
+
+/* ══ Paragraph / markdown body text ══ */
+.stMarkdown p, .stMarkdown li, .stMarkdown td, .stMarkdown th,
+.element-container p, .element-container li {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--color-text);
+}
+
+/* ══ Sidebar ══ */
+section[data-testid="stSidebar"] {
+    background: #0a0f16;
+    border-right: 1px solid var(--color-border);
+}
+section[data-testid="stSidebar"] .stMarkdown p,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] span {
+    font-size: 14px;
+    color: #c9d1d9;
+}
+
+/* ══ Main container ══ */
+.main .block-container {
+    padding-top: 1.4rem;
+    padding-bottom: 3rem;
+    max-width: 1440px;
+}
+
+/* ══ Headings ══ */
+h1 { font-family: var(--font-main) !important; color: #58a6ff !important;
+     font-size: 1.85rem !important; font-weight: 800 !important; letter-spacing: -0.02em; }
+h2 { font-family: var(--font-main) !important; color: #79c0ff !important;
+     font-size: 1.35rem !important; font-weight: 700 !important; }
+h3 { font-family: var(--font-main) !important; color: #a5d6ff !important;
+     font-size: 1.1rem !important; font-weight: 700 !important; }
+
+/* ══ Metric cards ══ */
+div[data-testid="metric-container"] {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 16px 20px;
+}
 div[data-testid="metric-container"] label {
-    font-size:12px !important; color:#8b949e !important;
-    text-transform:uppercase; letter-spacing:.06em; font-weight:600 !important; }
+    font-family: var(--font-main) !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    color: var(--color-muted) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
 div[data-testid="metric-container"] [data-testid="stMetricValue"] {
-    font-size:1.55rem !important; font-weight:800 !important; color:#e6edf3 !important; }
+    font-family: var(--font-main) !important;
+    font-size: 1.5rem !important;
+    font-weight: 800 !important;
+    color: var(--color-text) !important;
+}
 div[data-testid="metric-container"] [data-testid="stMetricDelta"] {
-    font-size:12px !important; }
-/* ── Headings ── */
-h1 { color:#58a6ff !important; font-size:1.9rem !important; font-weight:800 !important; }
-h2 { color:#79c0ff !important; font-size:1.4rem !important; font-weight:700 !important; }
-h3 { color:#a5d6ff !important; font-size:1.15rem !important; font-weight:700 !important; }
-/* ── Section header ── */
-.sh { font-size:14px !important; font-weight:700; color:#58a6ff; letter-spacing:.04em;
-      border-bottom:2px solid #30363d; padding-bottom:5px; margin:16px 0 10px; text-transform:uppercase; }
-/* ── Action cards ── */
-.card { background:#161b22; border:1px solid #30363d; border-radius:12px;
-        padding:18px 20px; margin-bottom:14px; }
-.card-title { font-size:16px !important; font-weight:700; color:#e6edf3; margin-bottom:6px; }
-.card-cash  { font-size:22px !important; font-weight:800; margin:8px 0; }
-.card-why   { font-size:14px !important; color:#c9d1d9; line-height:1.65; margin-bottom:10px; }
-.act        { font-size:14px !important; color:#cdd9e5; padding:3px 0; display:block; }
-.act::before{ content:"→ "; color:#3fb950; font-weight:700; }
-/* ── Alert boxes ── */
-.alert { background:#4d1b1b; border:1px solid #f85149; border-radius:10px;
-         padding:14px 18px; font-size:14px !important; line-height:1.7; }
-.warn  { background:#3d2a00; border:1px solid #d29922; border-radius:10px;
-         padding:14px 18px; font-size:14px !important; line-height:1.7; }
-.info  { background:#1a3045; border:1px solid #388bfd; border-radius:10px;
-         padding:14px 18px; font-size:14px !important; line-height:1.7; }
-/* ── Dataframe text ── */
-.stDataFrame td, .stDataFrame th { font-size:13px !important; }
-/* ── Input labels ── */
-.stNumberInput label, .stTextInput label, .stSelectbox label,
-.stRadio label, .stCheckbox label {
-    font-size:13px !important; font-weight:600 !important; color:#c9d1d9 !important; }
-/* ── Expander ── */
-.streamlit-expanderHeader { font-size:15px !important; font-weight:600 !important; }
-/* ── Tab labels ── */
-button[data-baseweb="tab"] { font-size:14px !important; font-weight:600 !important; }
+    font-size: 12px !important;
+}
+
+/* ══ Number inputs ══ */
+.stNumberInput label, .stTextInput label,
+.stSelectbox label, .stRadio label, .stCheckbox label {
+    font-family: var(--font-main) !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #c9d1d9 !important;
+}
+input[type="number"], input[type="text"] {
+    font-family: var(--font-main) !important;
+    font-size: 14px !important;
+    color: var(--color-text) !important;
+}
+
+/* ══ Dataframe ══ */
+.stDataFrame td, .stDataFrame th,
+[data-testid="stDataFrameResizable"] td,
+[data-testid="stDataFrameResizable"] th {
+    font-family: var(--font-main) !important;
+    font-size: 13px !important;
+}
+
+/* ══ Tabs ══ */
+button[data-baseweb="tab"] {
+    font-family: var(--font-main) !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+}
+
+/* ══ Expander ══ */
+details summary, [data-testid="stExpander"] summary {
+    font-family: var(--font-main) !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    color: var(--color-text) !important;
+}
+
+/* ══ Captions ══ */
+.stCaption, [data-testid="stCaptionContainer"] {
+    font-size: 12px !important;
+    color: var(--color-muted) !important;
+}
+
+/* ══ Section header divider ══ */
+.sh {
+    font-family: var(--font-main) !important;
+    font-size: 11px;
+    font-weight: 700;
+    color: #58a6ff;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-bottom: 2px solid var(--color-border);
+    padding-bottom: 6px;
+    margin: 18px 0 12px;
+}
+
+/* ══ Action cards ══ */
+.card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+    font-family: var(--font-main);
+}
+.card-title { font-size: 15px; font-weight: 700; color: var(--color-text); margin-bottom: 6px; }
+.card-cash  { font-size: 22px; font-weight: 800; margin: 8px 0; }
+.card-why   { font-size: 14px; color: #c9d1d9; line-height: 1.7; margin-bottom: 10px; }
+.act        { font-size: 14px; color: #cdd9e5; padding: 3px 0; display: block; line-height: 1.6; }
+.act::before{ content: "→ "; color: #3fb950; font-weight: 700; }
+
+/* ══ Alert / info boxes ══ */
+.alert, .warn, .info {
+    font-family: var(--font-main);
+    font-size: 14px;
+    line-height: 1.75;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 8px;
+}
+.alert { background: #2d1117; border: 1px solid #f85149; color: #ffa8a0; }
+.warn  { background: #2d2000; border: 1px solid #d29922; color: #f0c060; }
+.info  { background: #111d2e; border: 1px solid #388bfd; color: #93c5fd; }
+.alert b, .warn b, .info b { color: #ffffff; }
+
+/* ══ Scrollbar ══ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1181,7 +1295,10 @@ elif "Cash Flow" in page:
             except: pass
             return ""
         cash_cols = [c for c in df.columns if "PKR M" in c]
-        return df.style.applymap(colour, subset=cash_cols)
+        try:
+            return df.style.map(colour, subset=cash_cols)        # pandas ≥ 2.1
+        except AttributeError:
+            return df.style.applymap(colour, subset=cash_cols)   # pandas < 2.1
 
     with tab_m:
         st.markdown('<div class="sh">Monthly Cash Flow — Next 12 Months (PKR M)</div>', unsafe_allow_html=True)

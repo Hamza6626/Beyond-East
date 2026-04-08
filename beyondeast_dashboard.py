@@ -455,7 +455,7 @@ st.markdown("""<style>
 /* ══ Global text — single selector, no war with Streamlit ══ */
 html, body { font-family: var(--font-main); background: var(--color-bg); }
 
-.stApp, .stApp * {
+.stApp {
     font-family: var(--font-main) !important;
 }
 
@@ -554,6 +554,18 @@ details summary, [data-testid="stExpander"] summary {
     font-size: 15px !important;
     font-weight: 600 !important;
     color: var(--color-text) !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    line-height: 1.35 !important;
+    min-height: 42px !important;
+    padding: 8px 10px !important;
+}
+
+/* Keep Streamlit icon fonts intact; avoid arrow text artifacts like '.arr' */
+[class*="material-symbols"],
+[class*="material-icons"] {
+    font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons" !important;
 }
 
 /* ══ Captions ══ */

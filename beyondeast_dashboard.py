@@ -77,8 +77,16 @@ DEFAULTS = dict(
     machine_life_yrs    = 10,
     pcs_per_mach_day    = 40,
     op_days             = 300,
-    outsource_cost_pc   = 130,
-    inhouse_cost_pc     = 60,
+    # Per-garment variable production costs (PKR)
+    # User-provided baseline: stitching outsource 90 vs in-house 25-30 (model default 28);
+    # embroidery outsource 750 vs in-house 250.
+    outsource_stitch_cost_pc = 90,
+    inhouse_stitch_cost_pc   = 28,
+    outsource_emb_cost_pc    = 750,
+    inhouse_emb_cost_pc      = 250,
+    # Legacy total fields retained for backward compatibility with saved state.
+    outsource_cost_pc   = 840,
+    inhouse_cost_pc     = 278,
     operator_wage_mo    = 40_000,
     ops_per_mach        = 1,
     annual_power        = 1_200_000,
@@ -115,7 +123,16 @@ def calc(d):
     # Machinery
     capex       = d["num_machines"] * d["machine_cost_usd"] * d["usd_pkr"] + d["install_cost"]
     capacity    = d["num_machines"] * d["pcs_per_mach_day"] * d["op_days"]
-    gross_sav   = capacity * (d["outsource_cost_pc"] - d["inhouse_cost_pc"])
+    outsource_pc = (
+        d.get("outsource_stitch_cost_pc", 0)
+        + d.get("outsource_emb_cost_pc", d.get("outsource_cost_pc", 0))
+    )
+    inhouse_pc = (
+        d.get("inhouse_stitch_cost_pc", 0)
+        + d.get("inhouse_emb_cost_pc", d.get("inhouse_cost_pc", 0))
+    )
+    saving_per_pc = outsource_pc - inhouse_pc
+    gross_sav   = capacity * saving_per_pc
     run_cost    = (d["operator_wage_mo"] * d["ops_per_mach"] * d["num_machines"] * 12
                   + d["annual_power"] + d["annual_maint"])
     net_sav     = gross_sav - run_cost
@@ -159,6 +176,7 @@ def calc(d):
         total_wc_release=total_wc_release,
         annual_wc_benefit=annual_wc_benefit,
         capex=capex, capacity=capacity, gross_sav=gross_sav,
+        outsource_total_pc=outsource_pc, inhouse_total_pc=inhouse_pc, saving_per_pc=saving_per_pc,
         run_cost=run_cost, net_sav=net_sav, payback=payback,
         annual_depr=annual_depr, roi_yr1=roi_yr1,
         total_annual_benefit=total_annual_benefit, net_3yr=net_3yr,
@@ -1130,13 +1148,13 @@ elif "Action" in page:
 
     # WITH plan: quantified improvements from each lever
     dead_recovery   = d["fg_winter_fcst"] * 0.55          # 55% cash recovery on dead stock clearance
-    emb_saving      = c["net_sav"]                         # annual in-house EMB saving
+    emb_saving      = c["net_sav"]                         # annual in-house production saving (stitching + embroidery)
     wc_int_saving   = c["wc_interest_improvement"]         # annual WC financing cost saving
     fg_carry_saving = c["fg_release"] * d["cost_of_capital"]  # freed FG capital at CoC
     rec_saving      = c["rec_release"] * d["cost_of_capital"] # freed receivables
 
     rev_plan    = rev_base + dead_recovery                 # dead stock proceeds add to top line
-    cogs_plan   = cogs_base - emb_saving                   # EMB in-house cuts COGS
+    cogs_plan   = cogs_base - emb_saving                   # in-house production cuts COGS
     gp_plan     = rev_plan - cogs_plan
     opex_plan   = opex_base                                # opex unchanged (no structural cut)
     ebitda_plan = gp_plan - opex_plan + wc_int_saving + fg_carry_saving + rec_saving
@@ -1182,7 +1200,7 @@ elif "Action" in page:
 <tr><td style="padding:5px 0;color:#c9d1d9">Revenue uplift</td><td style="text-align:right;color:#3fb950;font-weight:600">+{pkr(rev_plan-rev_base)}</td></tr>
 <tr><td style="padding:4px 0;font-size:12px;color:#8b949e;padding-left:12px">Dead stock recovery</td><td style="text-align:right;font-size:12px;color:#8b949e">+{pkr(dead_recovery)}</td></tr>
 <tr><td style="padding:5px 0;color:#c9d1d9">COGS reduction</td><td style="text-align:right;color:#3fb950;font-weight:600">+{pkr(emb_saving)}</td></tr>
-<tr><td style="padding:4px 0;font-size:12px;color:#8b949e;padding-left:12px">EMB in-house saving</td><td style="text-align:right;font-size:12px;color:#8b949e">+{pkr(emb_saving)}</td></tr>
+<tr><td style="padding:4px 0;font-size:12px;color:#8b949e;padding-left:12px">In-house production saving</td><td style="text-align:right;font-size:12px;color:#8b949e">+{pkr(emb_saving)}</td></tr>
 <tr><td style="padding:5px 0;color:#c9d1d9">WC interest saving</td><td style="text-align:right;color:#3fb950;font-weight:600">+{pkr(wc_int_saving)}</td></tr>
 <tr><td style="padding:5px 0;color:#c9d1d9">FG carry saving</td><td style="text-align:right;color:#3fb950;font-weight:600">+{pkr(fg_carry_saving)}</td></tr>
 <tr><td style="padding:5px 0;color:#c9d1d9;border-top:1px solid #30363d;font-weight:700">EBITDA Improvement</td><td style="text-align:right;font-weight:800;color:#3fb950;border-top:1px solid #30363d">+{pkr(ebitda_improvement)}</td></tr>
@@ -1216,7 +1234,7 @@ elif "Action" in page:
     st.markdown(f"""<div class="info">
 <b>Key assumptions in the With Plan scenario:</b>
 55% recovery on PKR {d['fg_winter_fcst']/1e6:.0f}M dead stock = <b>+{pkr(dead_recovery)}</b> revenue |
-EMB in-house removes outsource cost = <b>+{pkr(emb_saving)}</b> COGS saving |
+In-house stitching + embroidery removes outsource cost = <b>+{pkr(emb_saving)}</b> COGS saving |
 WC financing cost drops by <b>+{pkr(wc_int_saving)}</b>/yr at {d['cost_of_capital']*100:.0f}% CoC |
 FG inventory reduction saves <b>+{pkr(fg_carry_saving)}</b>/yr carry cost.
 </div>""", unsafe_allow_html=True)
@@ -1225,7 +1243,7 @@ FG inventory reduction saves <b>+{pkr(fg_carry_saving)}</b>/yr carry cost.
 #  PAGE 4 — MACHINERY ROI  (number inputs, not sliders)
 # ══════════════════════════════════════════════════════════════════════════════
 elif "Machinery" in page:
-    st.title("Machinery ROI — 28 Ricoma EMB Machines")
+    st.title("Machinery ROI — In-House Production Economics")
     st.caption("Enter values directly. All ROI metrics and charts update instantly.")
 
     d = st.session_state.d
@@ -1241,11 +1259,13 @@ elif "Machinery" in page:
         d["machine_life_yrs"]  = int(st.number_input("Machine Life (Years)",        value=int(d["machine_life_yrs"]),  step=1,   key="m_life"))
 
     with col2:
-        st.markdown("**Production**")
+        st.markdown("**Production Costs / Garment (PKR)**")
         d["pcs_per_mach_day"]  = int(st.number_input("Pcs per Machine per Day",     value=int(d["pcs_per_mach_day"]),  step=1,   key="m_pcs"))
         d["op_days"]           = int(st.number_input("Operating Days per Year",     value=int(d["op_days"]),           step=1,   key="m_days"))
-        d["outsource_cost_pc"] = int(st.number_input("Outsource EMB Cost/pc (PKR)", value=int(d["outsource_cost_pc"]), step=5,   key="m_out"))
-        d["inhouse_cost_pc"]   = int(st.number_input("In-House EMB Cost/pc (PKR)",  value=int(d["inhouse_cost_pc"]),   step=5,   key="m_in"))
+        d["outsource_stitch_cost_pc"] = int(st.number_input("Outsource Stitching Cost/pc", value=int(d.get("outsource_stitch_cost_pc", 90)), step=1, key="m_out_stitch"))
+        d["inhouse_stitch_cost_pc"]   = int(st.number_input("In-House Stitching Cost/pc",  value=int(d.get("inhouse_stitch_cost_pc", 28)),   step=1, key="m_in_stitch"))
+        d["outsource_emb_cost_pc"]    = int(st.number_input("Outsource Embroidery Cost/pc", value=int(d.get("outsource_emb_cost_pc", 750)),  step=5, key="m_out_emb"))
+        d["inhouse_emb_cost_pc"]      = int(st.number_input("In-House Embroidery Cost/pc",  value=int(d.get("inhouse_emb_cost_pc", 250)),    step=5, key="m_in_emb"))
 
     with col3:
         st.markdown("**Operating Costs**")
@@ -1264,13 +1284,17 @@ elif "Machinery" in page:
     st.session_state.d = d
     c = calc(d)
 
+    d["outsource_cost_pc"] = int(c["outsource_total_pc"])
+    d["inhouse_cost_pc"] = int(c["inhouse_total_pc"])
+    st.session_state.d = d
+
     st.markdown("---")
 
     # KPI row
     k1,k2,k3,k4,k5 = st.columns(5)
     k1.metric("Total CAPEX",            pkr(c["capex"]))
     k2.metric("Annual Capacity",        f"{c['capacity']:,.0f} pcs")
-    k3.metric("Net EMB Saving/yr",      pkr(c["net_sav"]))
+    k3.metric("Net Production Saving/yr",      pkr(c["net_sav"]))
     k4.metric("Payback Period",         f"{c['payback']:.1f} yrs",
               delta="🟢 Good" if c["payback"]<2 else ("🟡 Acceptable" if c["payback"]<4 else "🔴 Long"))
     k5.metric("3-Year Net Return",      pkr(c["net_3yr"]),
@@ -1281,7 +1305,7 @@ elif "Machinery" in page:
 
     with col_l:
         st.markdown('<div class="sh">Annual Benefits & Cost Breakdown</div>', unsafe_allow_html=True)
-        items  = ["Gross EMB\nSaving","Operator\nCost","Power\nCost","Maintenance","Net EMB\nSaving","WC Interest\nBenefit","Total Annual\nBenefit"]
+        items  = ["Gross Production\nSaving","Operator\nCost","Power\nCost","Maintenance","Net Production\nSaving","WC Interest\nBenefit","Total Annual\nBenefit"]
         vals   = [c["gross_sav"], -c["run_cost"]*0.9, -d["annual_power"], -d["annual_maint"],
                   c["net_sav"], c["annual_wc_benefit"], c["total_annual_benefit"]]
         clrs   = ["#3fb950","#f85149","#f85149","#f85149","#58a6ff","#3fb950","#bc8cff"]
@@ -1299,16 +1323,18 @@ elif "Machinery" in page:
         calc_rows = [
             ("CAPEX",                    pkr(c["capex"]),              f"{d['num_machines']} × USD {d['machine_cost_usd']:,} × PKR {d['usd_pkr']} + install"),
             ("Annual Capacity",          f"{c['capacity']:,.0f} pcs",  f"{d['pcs_per_mach_day']} pcs/mach × {d['num_machines']} mach × {d['op_days']} days"),
-            ("Saving/Piece",             f"PKR {d['outsource_cost_pc']-d['inhouse_cost_pc']}",f"PKR {d['outsource_cost_pc']} outsource − PKR {d['inhouse_cost_pc']} in-house"),
-            ("Gross EMB Saving",         pkr(c["gross_sav"]),          "Capacity × saving/piece"),
+            ("Outsource Cost / Piece",   f"PKR {c['outsource_total_pc']:.0f}", f"Stitch {d['outsource_stitch_cost_pc']} + Emb {d['outsource_emb_cost_pc']}"),
+            ("In-House Cost / Piece",    f"PKR {c['inhouse_total_pc']:.0f}",   f"Stitch {d['inhouse_stitch_cost_pc']} + Emb {d['inhouse_emb_cost_pc']}"),
+            ("Saving / Piece",           f"PKR {c['saving_per_pc']:.0f}",      "Outsource − in-house"),
+            ("Gross Production Saving",  pkr(c["gross_sav"]),          "Capacity × saving/piece"),
             ("Total Run Cost",           pkr(c["run_cost"]),           "Operators + power + maintenance"),
-            ("Net EMB Saving",           pkr(c["net_sav"]),            "Gross − run cost"),
+            ("Net Production Saving",    pkr(c["net_sav"]),            "Gross − run cost"),
             ("Annual Depreciation",      pkr(c["annual_depr"]),        f"Straight-line over {d['machine_life_yrs']} yrs"),
             ("WIP Release (days cut)",   pkr(c["wip_release"]),        f"{d['wip_days_fcst']:.1f} → {d['wip_days_tgt']:.1f} days"),
             ("WC Interest Benefit",      pkr(c["annual_wc_benefit"]),  f"WC release × {d['cost_of_capital']*100:.0f}% CoC"),
-            ("Total Annual Benefit",     pkr(c["total_annual_benefit"]),"EMB + WC interest"),
+            ("Total Annual Benefit",     pkr(c["total_annual_benefit"]),"Production + WC interest"),
             ("Payback",                  f"{c['payback']:.1f} years",  "CAPEX ÷ total annual benefit"),
-            ("3-Year Net Return",        pkr(c["net_3yr"]),            "3 × net EMB saving − CAPEX"),
+            ("3-Year Net Return",        pkr(c["net_3yr"]),            "3 × net production saving − CAPEX"),
         ]
         st.dataframe(pd.DataFrame(calc_rows, columns=["Metric","Value","Notes"]),
                  hide_index=True, width="stretch")
@@ -1346,7 +1372,7 @@ elif "Machinery" in page:
                                 "xaxis":dict(title="Saving/Piece (PKR)"),
                                 "yaxis":dict(title="Annual Pieces")})
         st.plotly_chart(fig_ht, width="stretch")
-        st.caption(f"Base case: {c['capacity']//1000}K pcs × PKR {d['outsource_cost_pc']-d['inhouse_cost_pc']} = {pkr(c['net_sav'])}/yr")
+        st.caption(f"Base case: {c['capacity']//1000}K pcs × PKR {c['saving_per_pc']:.0f} = {pkr(c['net_sav'])}/yr")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE 5 — CASH FLOW FORECAST

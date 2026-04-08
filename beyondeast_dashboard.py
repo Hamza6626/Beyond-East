@@ -718,7 +718,7 @@ with st.sidebar:
     d = st.session_state.d
     c = calc(d)
     st.markdown("**Live Totals**")
-    st.markdown(f"WC release: **{pkr(c['total_wc_release'])}**")
+    st.markdown(f"Cash unlocked (from inventory/receivables/payables): **{pkr(c['total_wc_release'])}**")
     st.markdown(f"Annual benefit: **{pkr(c['total_annual_benefit'])}**")
     pb_icon = "🟢" if c["payback"] < 2 else ("🟡" if c["payback"] < 4 else "🔴")
     st.markdown(f"EMB payback: **{pb_icon} {c['payback']:.1f} yrs**")
@@ -807,12 +807,13 @@ Cash action is not optional.
 
     # ── KPI ROW ───────────────────────────────────────────────────────────────
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Total WC Release",   pkr(c["total_wc_release"]))
+    c1.metric("Cash Unlocked (WC)",   pkr(c["total_wc_release"]))
     c2.metric("Dead Stock (urgent)",pkr(d["fg_winter_fcst"]), delta="Depreciating daily", delta_color="inverse")
     c3.metric("WIP Release",        pkr(c["wip_release"]))
     c4.metric("MG Payables",        pkr(d["mg_pay_days_fcst"]*d["annual_cogs"]/365),
               delta=f"{d['mg_pay_days_fcst']:.0f} days DPO", delta_color="inverse")
     c5.metric("YTD EBITDA",         pkr(d["ytd_ebitda"]), delta_color="off")
+    st.caption("Cash Unlocked (WC) means cash freed by reducing inventory and receivables, and optimizing payables.")
 
     st.markdown("---")
 
@@ -913,10 +914,10 @@ elif "Financial" in page:
 
     # ── KPI IMPACT ROW ────────────────────────────────────────────────────────
     k1,k2,k3,k4,k5,k6 = st.columns(6)
-    k1.metric("Total WC Release",    pkr(c["total_wc_release"]))
-    k2.metric("Annual WC Benefit",   pkr(c["annual_wc_benefit"]))
+    k1.metric("Cash Unlocked (WC)",    pkr(c["total_wc_release"]))
+    k2.metric("Annual Finance Saving",   pkr(c["annual_wc_benefit"]))
     k3.metric("Net EMB Saving/yr",   pkr(c["net_sav"]))
-    k4.metric("Combined Annual Ben.", pkr(c["total_annual_benefit"]))
+    k4.metric("Combined Annual Benefit", pkr(c["total_annual_benefit"]))
     k5.metric("EMB Payback",          f"{c['payback']:.1f} yrs")
     gp_pct = (d["annual_sales"] - d["annual_cogs"]) / d["annual_sales"] * 100
     k6.metric("Implied GP%",          f"{gp_pct:.1f}%",

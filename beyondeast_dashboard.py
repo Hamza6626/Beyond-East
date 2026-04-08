@@ -143,6 +143,22 @@ def calc(d):
     total_annual_benefit = net_sav + annual_wc_benefit
     net_3yr     = net_sav * 3 - capex
 
+    # Discounted payback uses annual total benefit discounted at cost of capital.
+    discounted_payback = None
+    if total_annual_benefit > 0 and d["cost_of_capital"] > -1:
+        r = d["cost_of_capital"]
+        cum_disc = 0.0
+        prev_cum = 0.0
+        for yr in range(1, int(d["machine_life_yrs"]) + 1):
+            disc_cf = total_annual_benefit / ((1 + r) ** yr)
+            prev_cum = cum_disc
+            cum_disc += disc_cf
+            if cum_disc >= capex:
+                rem = capex - prev_cum
+                frac = (rem / disc_cf) if disc_cf > 0 else 0
+                discounted_payback = (yr - 1) + frac
+                break
+
     # ── WC Interest Cost Breakdown ────────────────────────────────────────────
     # Annual financing cost of each WC component at cost_of_capital
     inv_total_fcst  = (d["wip_days_fcst"] + d["fg_total_days_fcst"]) * dc + d["raw_mat_fcst"]
@@ -180,6 +196,7 @@ def calc(d):
         run_cost=run_cost, net_sav=net_sav, payback=payback,
         annual_depr=annual_depr, roi_yr1=roi_yr1,
         total_annual_benefit=total_annual_benefit, net_3yr=net_3yr,
+        discounted_payback=discounted_payback,
         # WC interest cost breakdown
         wc_int_inv_fcst=wc_int_inv_fcst, wc_int_rec_fcst=wc_int_rec_fcst,
         wc_int_pay_fcst=wc_int_pay_fcst, wc_net_cost_fcst=wc_net_cost_fcst,
@@ -1291,13 +1308,16 @@ elif "Machinery" in page:
     st.markdown("---")
 
     # KPI row
-    k1,k2,k3,k4,k5 = st.columns(5)
+    k1,k2,k3,k4,k5,k6 = st.columns(6)
     k1.metric("Total CAPEX",            pkr(c["capex"]))
     k2.metric("Annual Capacity",        f"{c['capacity']:,.0f} pcs")
     k3.metric("Net Production Saving/yr",      pkr(c["net_sav"]))
     k4.metric("Payback Period",         f"{c['payback']:.1f} yrs",
               delta="🟢 Good" if c["payback"]<2 else ("🟡 Acceptable" if c["payback"]<4 else "🔴 Long"))
-    k5.metric("3-Year Net Return",      pkr(c["net_3yr"]),
+    disc_pb = c.get("discounted_payback")
+    k5.metric("Discounted Payback",     f"{disc_pb:.1f} yrs" if disc_pb is not None else "Not recovered",
+              delta=f"@ {d['cost_of_capital']*100:.0f}% discount rate")
+    k6.metric("3-Year Net Return",      pkr(c["net_3yr"]),
               delta=f"ROI Yr1: {c['roi_yr1']*100:.0f}%")
 
     st.markdown("---")
@@ -1333,7 +1353,8 @@ elif "Machinery" in page:
             ("WIP Release (days cut)",   pkr(c["wip_release"]),        f"{d['wip_days_fcst']:.1f} → {d['wip_days_tgt']:.1f} days"),
             ("WC Interest Benefit",      pkr(c["annual_wc_benefit"]),  f"WC release × {d['cost_of_capital']*100:.0f}% CoC"),
             ("Total Annual Benefit",     pkr(c["total_annual_benefit"]),"Production + WC interest"),
-            ("Payback",                  f"{c['payback']:.1f} years",  "CAPEX ÷ total annual benefit"),
+            ("Payback",                  f"{c['payback']:.1f} years",  "CAPEX ÷ net production saving"),
+            ("Discounted Payback",       f"{c['discounted_payback']:.1f} years" if c.get("discounted_payback") is not None else "Not recovered", f"Discount rate = {d['cost_of_capital']*100:.0f}%"),
             ("3-Year Net Return",        pkr(c["net_3yr"]),            "3 × net production saving − CAPEX"),
         ]
         st.dataframe(pd.DataFrame(calc_rows, columns=["Metric","Value","Notes"]),

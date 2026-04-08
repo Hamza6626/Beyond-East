@@ -19,6 +19,8 @@ import pandas as pd
 COMPANY    = "Beyond East | Masood Retail Private Limited"
 TARGET_DIR = Path(__file__).parent
 STATE_FILE = TARGET_DIR / "BeyondEast_WC_State.json"
+APP_VERSION = "v4 · 2026-04-08 · light"
+DEPLOY_FINGERPRINT = "beyond-east-repo"
 
 DEFAULTS = dict(
     # ── P&L ──────────────────────────────────────────────────────────────────
@@ -443,11 +445,11 @@ st.markdown("""<style>
 /* ══ ROOT — set font family once, let it cascade ══ */
 :root {
     --font-main: 'Inter', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
-    --color-text: #e6edf3;
-    --color-muted: #8b949e;
-    --color-border: #30363d;
-    --color-card: #161b22;
-    --color-bg: #0d1117;
+    --color-text: #0f172a;
+    --color-muted: #64748b;
+    --color-border: #cbd5e1;
+    --color-card: #f8fafc;
+    --color-bg: #ffffff;
 }
 
 /* ══ Global text — single selector, no war with Streamlit ══ */
@@ -467,14 +469,14 @@ html, body { font-family: var(--font-main); background: var(--color-bg); }
 
 /* ══ Sidebar ══ */
 section[data-testid="stSidebar"] {
-    background: #0a0f16;
+    background: #f8fafc;
     border-right: 1px solid var(--color-border);
 }
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] label,
 section[data-testid="stSidebar"] span {
     font-size: 14px;
-    color: #c9d1d9;
+    color: #334155;
 }
 
 /* ══ Main container ══ */
@@ -487,9 +489,9 @@ section[data-testid="stSidebar"] span {
 /* ══ Headings ══ */
 h1 { font-family: var(--font-main) !important; color: #58a6ff !important;
      font-size: 1.85rem !important; font-weight: 800 !important; letter-spacing: -0.02em; }
-h2 { font-family: var(--font-main) !important; color: #79c0ff !important;
+h2 { font-family: var(--font-main) !important; color: #1d4ed8 !important;
      font-size: 1.35rem !important; font-weight: 700 !important; }
-h3 { font-family: var(--font-main) !important; color: #a5d6ff !important;
+h3 { font-family: var(--font-main) !important; color: #334155 !important;
      font-size: 1.1rem !important; font-weight: 700 !important; }
 
 /* ══ Metric cards ══ */
@@ -523,7 +525,7 @@ div[data-testid="metric-container"] [data-testid="stMetricDelta"] {
     font-family: var(--font-main) !important;
     font-size: 13px !important;
     font-weight: 600 !important;
-    color: #c9d1d9 !important;
+    color: #334155 !important;
 }
 input[type="number"], input[type="text"] {
     font-family: var(--font-main) !important;
@@ -565,7 +567,7 @@ details summary, [data-testid="stExpander"] summary {
     font-family: var(--font-main) !important;
     font-size: 11px;
     font-weight: 700;
-    color: #58a6ff;
+    color: #2563eb;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     border-bottom: 2px solid var(--color-border);
@@ -584,8 +586,8 @@ details summary, [data-testid="stExpander"] summary {
 }
 .card-title { font-size: 15px; font-weight: 700; color: var(--color-text); margin-bottom: 6px; }
 .card-cash  { font-size: 22px; font-weight: 800; margin: 8px 0; }
-.card-why   { font-size: 14px; color: #c9d1d9; line-height: 1.7; margin-bottom: 10px; }
-.act        { font-size: 14px; color: #cdd9e5; padding: 3px 0; display: block; line-height: 1.6; }
+.card-why   { font-size: 14px; color: #334155; line-height: 1.7; margin-bottom: 10px; }
+.act        { font-size: 14px; color: #334155; padding: 3px 0; display: block; line-height: 1.6; }
 .act::before{ content: "→ "; color: #3fb950; font-weight: 700; }
 
 /* ══ Alert / info boxes ══ */
@@ -597,22 +599,22 @@ details summary, [data-testid="stExpander"] summary {
     padding: 14px 18px;
     margin-bottom: 8px;
 }
-.alert { background: #2d1117; border: 1px solid #f85149; color: #ffa8a0; }
-.warn  { background: #2d2000; border: 1px solid #d29922; color: #f0c060; }
-.info  { background: #111d2e; border: 1px solid #388bfd; color: #93c5fd; }
-.alert b, .warn b, .info b { color: #ffffff; }
+.alert { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.25); color: #7f1d1d; }
+.warn  { background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.30); color: #92400e; }
+.info  { background: rgba(59,130,246,.10); border: 1px solid rgba(59,130,246,.25); color: #1e3a8a; }
+.alert b, .warn b, .info b { color: #0f172a; }
 
 /* ══ Scrollbar ══ */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--color-bg); }
-::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 </style>
 """, unsafe_allow_html=True)
 
-CHART = dict(paper_bgcolor="#0d1117", plot_bgcolor="#161b22",
-             font_color="#e6edf3", font_size=11,
-             xaxis=dict(gridcolor="#21262d"), yaxis=dict(gridcolor="#21262d"),
-             legend=dict(bgcolor="#161b22", bordercolor="#30363d"),
+CHART = dict(paper_bgcolor="#ffffff", plot_bgcolor="#f8fafc",
+             font_color="#334155", font_size=11,
+             xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="#e2e8f0"),
+             legend=dict(bgcolor="#f8fafc", bordercolor="#cbd5e1"),
              margin=dict(t=20, b=5, l=5, r=5))
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -622,6 +624,8 @@ with st.sidebar:
     st.markdown("## 🎯 Beyond East")
     st.markdown("**WC Command Centre**")
     st.caption("Masood Retail Pvt. Ltd.")
+    st.caption(f"{APP_VERSION}")
+    st.caption(f"build: {DEPLOY_FINGERPRINT}")
     st.markdown("---")
     page = st.radio("Navigation", [
         "🚨  Command Centre",

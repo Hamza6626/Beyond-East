@@ -1486,8 +1486,8 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
         except:
             return base.applymap(colour, subset=num_cols)
 
-    def render_statement_matrix(df):
-        periods = df["Month"].tolist()
+    def render_statement_matrix(df, period_col, total_col_label):
+        periods = df[period_col].tolist()
         rows = [
             ("A. Operating receipts", None),
             ("Sales collections", "Sales Collections (PKR M)"),
@@ -1512,14 +1512,19 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
         out = []
         for label, col in rows:
             if col is None:
-                out.append({"Line Item": label, **{p: "" for p in periods}, "FY Total": ""})
+                out.append({"Line Item": label, **{p: "" for p in periods}, total_col_label: ""})
                 continue
             vals = df[col].tolist()
-            fy = vals[-1] if "Balance" in col else round(sum(vals), 1)
+            if col == "Opening Balance (PKR M)":
+                total_val = vals[0]
+            elif col == "Closing Balance (PKR M)":
+                total_val = vals[-1]
+            else:
+                total_val = round(sum(vals), 1)
             out.append({
                 "Line Item": label,
                 **{periods[i]: vals[i] for i in range(len(periods))},
-                "FY Total": fy
+                total_col_label: total_val
             })
         stm = pd.DataFrame(out)
 
@@ -1550,7 +1555,7 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
     with tab_m_view:
         # Summary table with sections
         st.markdown('<div class="sh">Monthly Statement — All Heads (PKR M)</div>', unsafe_allow_html=True)
-        render_statement_matrix(df_m)
+        render_statement_matrix(df_m, "Month", "FY Total")
 
         # Sub-tabs for different views
         t_full, t_rec, t_pay, t_wc, t_bal = st.tabs([
@@ -1652,12 +1657,35 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
     # ────────────────────────────── WEEKLY ───────────────────────────────────
     with tab_w_view:
         st.markdown('<div class="sh">Weekly Statement — Next 12 Weeks (PKR M)</div>', unsafe_allow_html=True)
+        render_statement_matrix(df_w, "Week", "12W Total")
 
-        wt_full, wt_bal = st.tabs(["Full View", "Balance Only"])
-        wbal_cols = ["Week","Opening Balance (PKR M)","Total Receipts (PKR M)",
-                     "Operating EBITDA (PKR M)","Net Cash Flow (PKR M)","Closing Balance (PKR M)","⚠ Alert"]
-        with wt_full: st.dataframe(style_cf(df_w), hide_index=True, use_container_width=True, height=460)
-        with wt_bal:  st.dataframe(style_cf(df_w[wbal_cols]), hide_index=True, use_container_width=True)
+        wt_full, wt_rec, wt_pay, wt_wc, wt_bal = st.tabs([
+            "Full Statement", "Receipts", "Payments", "WC Initiatives", "Balance Sheet"
+        ])
+
+        wrec_cols = ["Week","Opening Balance (PKR M)","Sales Collections (PKR M)",
+                     "Dead Stock Proceeds (PKR M)","E-com Collections (PKR M)","Total Receipts (PKR M)"]
+        wpay_cols = ["Week","COGS Payments (PKR M)","Stores Opex (PKR M)",
+                     "Corp Overhead (PKR M)","Operating EBITDA (PKR M)","Machine CAPEX (PKR M)"]
+        wwc_cols  = ["Week","WIP Release (PKR M)","FG Release (PKR M)",
+                     "Other Pay. Extension (PKR M)","MG Pay-Down (PKR M)"]
+        wbal_cols = ["Week","Opening Balance (PKR M)","Net Cash Flow (PKR M)",
+                     "Closing Balance (PKR M)","⚠ Alert"]
+
+        with wt_full:
+            st.dataframe(style_cf(df_w), hide_index=True, use_container_width=True, height=460)
+        with wt_rec:
+            st.caption("Cash received each week — sales on lagged collection pattern + WC proceeds")
+            st.dataframe(style_cf(df_w[wrec_cols]), hide_index=True, use_container_width=True)
+        with wt_pay:
+            st.caption("Cash paid each week — COGS lag, operating opex and CAPEX")
+            st.dataframe(style_cf(df_w[wpay_cols]), hide_index=True, use_container_width=True)
+        with wt_wc:
+            st.caption("WC initiative releases and obligations spread across the 12-week horizon")
+            st.dataframe(style_cf(df_w[wwc_cols]), hide_index=True, use_container_width=True)
+        with wt_bal:
+            st.caption("Opening → Net Cash → Closing balance each week with traffic-light alert")
+            st.dataframe(style_cf(df_w[wbal_cols]), hide_index=True, use_container_width=True)
 
         # Weekly receipts vs payments
         st.markdown('<div class="sh">Weekly Receipts vs Payments</div>', unsafe_allow_html=True)

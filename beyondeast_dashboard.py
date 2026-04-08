@@ -608,6 +608,39 @@ details summary, [data-testid="stExpander"] summary {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--color-bg); }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+/* ══ Cash Flow statement cards ══ */
+.cf-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin: 8px 0 14px;
+}
+.cf-kpi-card {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 12px 14px;
+}
+.cf-kpi-lbl {
+    font-size: 10px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.cf-kpi-val {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.2;
+}
+.cf-kpi-sub {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1335,6 +1368,31 @@ elif "Cash Flow" in page:
     k5.metric("Deficit Months",       f"{deficit_months} of 12",
               delta="Action needed" if deficit_months > 0 else "No deficit", delta_color="inverse" if deficit_months > 0 else "normal")
 
+    st.markdown(f"""
+<div class="cf-kpi-grid">
+    <div class="cf-kpi-card">
+        <div class="cf-kpi-lbl">Total Receipts (12M)</div>
+        <div class="cf-kpi-val">{pkr(df_m['Total Receipts (PKR M)'].sum() * 1e6)}</div>
+        <div class="cf-kpi-sub">Sales + dead stock + e-com</div>
+    </div>
+    <div class="cf-kpi-card">
+        <div class="cf-kpi-lbl">Operating EBITDA Cash</div>
+        <div class="cf-kpi-val">{pkr(df_m['Operating EBITDA (PKR M)'].sum() * 1e6)}</div>
+        <div class="cf-kpi-sub">After COGS, stores, and overhead</div>
+    </div>
+    <div class="cf-kpi-card">
+        <div class="cf-kpi-lbl">Net Cash Flow (12M)</div>
+        <div class="cf-kpi-val">{pkr(df_m['Net Cash Flow (PKR M)'].sum() * 1e6)}</div>
+        <div class="cf-kpi-sub">Includes WC initiatives and CAPEX</div>
+    </div>
+    <div class="cf-kpi-card">
+        <div class="cf-kpi-lbl">Cash Runway Signal</div>
+        <div class="cf-kpi-val">{"At Risk" if deficit_months > 0 else "Stable"}</div>
+        <div class="cf-kpi-sub">{deficit_months} deficit month(s) / 12</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
     if deficit_months > 0:
         st.markdown(f"""<div class="alert">
 <b>⚠ Cash Deficit Warning:</b> Closing balance goes negative in {deficit_months} month(s).
@@ -1356,10 +1414,76 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
                 if v > 0:  return "color:#3fb950;font-weight:600"
                 if v < 0:  return "color:#f85149;font-weight:600"
             except: pass
-            return "color:#e6edf3"
+            return "color:#0f172a"
         num_cols = [col for col in df.columns if "PKR M" in col]
-        try:    return df.style.map(colour, subset=num_cols)
-        except: return df.style.applymap(colour, subset=num_cols)
+        base = (df.style
+                .set_properties(**{"font-size": "12px"})
+                .set_table_styles([
+                    {"selector": "th", "props": "background:#f1f5f9;color:#475569;font-weight:700;font-size:11px;border-bottom:1px solid #cbd5e1;"},
+                    {"selector": "td", "props": "border-bottom:1px solid #e2e8f0;"}
+                ]))
+        try:
+            return base.map(colour, subset=num_cols)
+        except:
+            return base.applymap(colour, subset=num_cols)
+
+    def render_statement_matrix(df):
+        periods = df["Month"].tolist()
+        rows = [
+            ("A. Operating receipts", None),
+            ("Sales collections", "Sales Collections (PKR M)"),
+            ("Dead stock proceeds", "Dead Stock Proceeds (PKR M)"),
+            ("E-com collections", "E-com Collections (PKR M)"),
+            ("Total receipts", "Total Receipts (PKR M)"),
+            ("B. Operating payments", None),
+            ("COGS payments", "COGS Payments (PKR M)"),
+            ("Stores opex", "Stores Opex (PKR M)"),
+            ("Corp overhead", "Corp Overhead (PKR M)"),
+            ("Operating EBITDA", "Operating EBITDA (PKR M)"),
+            ("C. WC initiatives", None),
+            ("WIP release", "WIP Release (PKR M)"),
+            ("FG release", "FG Release (PKR M)"),
+            ("Other payables extension", "Other Pay. Extension (PKR M)"),
+            ("MG pay-down", "MG Pay-Down (PKR M)"),
+            ("Machine CAPEX", "Machine CAPEX (PKR M)"),
+            ("D. Net cash flow", "Net Cash Flow (PKR M)"),
+            ("Opening balance", "Opening Balance (PKR M)"),
+            ("Closing balance", "Closing Balance (PKR M)"),
+        ]
+        out = []
+        for label, col in rows:
+            if col is None:
+                out.append({"Line Item": label, **{p: "" for p in periods}, "FY Total": ""})
+                continue
+            vals = df[col].tolist()
+            fy = vals[-1] if "Balance" in col else round(sum(vals), 1)
+            out.append({
+                "Line Item": label,
+                **{periods[i]: vals[i] for i in range(len(periods))},
+                "FY Total": fy
+            })
+        stm = pd.DataFrame(out)
+
+        def fmt_stmt(v):
+            if v == "":
+                return ""
+            try:
+                x = float(v)
+            except:
+                return v
+            if abs(x) < 0.05:
+                return "-"
+            return f"({abs(x):,.1f})" if x < 0 else f"{x:,.1f}"
+
+        styled = (stm.style
+                  .format(fmt_stmt)
+                  .set_properties(**{"font-size": "11.5px"})
+                  .set_table_styles([
+                      {"selector": "th", "props": "background:#f1f5f9;color:#475569;font-weight:700;font-size:10px;border-bottom:1px solid #cbd5e1;"},
+                      {"selector": "td", "props": "border-bottom:1px solid #e2e8f0;"},
+                      {"selector": "td.col0", "props": "font-weight:600;color:#334155;"}
+                  ]))
+        st.dataframe(styled, hide_index=True, use_container_width=True, height=520)
 
     tab_m_view, tab_w_view = st.tabs(["📅 Monthly (12 months)", "📆 Weekly (12 weeks)"])
 
@@ -1367,6 +1491,7 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
     with tab_m_view:
         # Summary table with sections
         st.markdown('<div class="sh">Monthly Statement — All Heads (PKR M)</div>', unsafe_allow_html=True)
+        render_statement_matrix(df_m)
 
         # Sub-tabs for different views
         t_full, t_rec, t_pay, t_wc, t_bal = st.tabs([
@@ -1419,13 +1544,13 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
                                 marker_color="#bc8cff", opacity=0.85))
         fig_rv.add_trace(go.Scatter(name="Net Cash Flow", x=df_m["Month"],
                                     y=df_m["Net Cash Flow (PKR M)"].tolist(),
-                                    mode="lines+markers", line=dict(color="#ffffff", width=2.5),
+                                    mode="lines+markers", line=dict(color="#0f172a", width=2.5),
                                     marker=dict(size=8, color=["#3fb950" if v>=0 else "#f85149"
                                                 for v in df_m["Net Cash Flow (PKR M)"].tolist()])))
         fig_rv.add_hline(y=0, line_dash="dot", line_color="#8b949e")
         fig_rv.update_layout(**{**CHART, "barmode":"stack", "height":380,
-                                "yaxis":dict(gridcolor="#21262d", title="PKR M"),
-                                "xaxis":dict(gridcolor="#21262d", tickangle=-30)})
+                                "yaxis":dict(gridcolor="#e2e8f0", title="PKR M"),
+                                "xaxis":dict(gridcolor="#e2e8f0", tickangle=-30)})
         st.plotly_chart(fig_rv, use_container_width=True)
 
         # ── Chart 2: Cash balance trajectory ─────────────────────────────────
@@ -1446,8 +1571,8 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
         fig_bal.add_hline(y=10, line_dash="dot", line_color="#d29922",
                           annotation_text="  PKR 10M watch threshold", annotation_font_color="#d29922")
         fig_bal.update_layout(**{**CHART, "barmode":"overlay", "height":300, "showlegend":True,
-                                 "yaxis":dict(gridcolor="#21262d", title="PKR M"),
-                                 "xaxis":dict(gridcolor="#21262d", tickangle=-30)})
+                                 "yaxis":dict(gridcolor="#e2e8f0", title="PKR M"),
+                                 "xaxis":dict(gridcolor="#e2e8f0", tickangle=-30)})
         st.plotly_chart(fig_bal, use_container_width=True)
 
         # ── Chart 3: WC initiatives contribution ─────────────────────────────
@@ -1461,8 +1586,8 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
         fig_wci.add_trace(go.Bar(name="E-com",            x=df_m["Month"], y=df_m["E-com Collections (PKR M)"].tolist(),    marker_color="#bc8cff"))
         fig_wci.add_hline(y=0, line_dash="dot", line_color="#8b949e")
         fig_wci.update_layout(**{**CHART, "barmode":"stack", "height":280,
-                                 "yaxis":dict(gridcolor="#21262d", title="PKR M"),
-                                 "xaxis":dict(gridcolor="#21262d", tickangle=-30)})
+                                 "yaxis":dict(gridcolor="#e2e8f0", title="PKR M"),
+                                 "xaxis":dict(gridcolor="#e2e8f0", tickangle=-30)})
         st.plotly_chart(fig_wci, use_container_width=True)
 
     # ────────────────────────────── WEEKLY ───────────────────────────────────
@@ -1489,12 +1614,12 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
                                  marker_color="#d29922", opacity=0.85))
         fig_wk.add_trace(go.Scatter(name="Net",        x=df_w["Week"],
                                      y=df_w["Net Cash Flow (PKR M)"].tolist(),
-                                     mode="lines+markers", line=dict(color="#ffffff", width=2),
+                                  mode="lines+markers", line=dict(color="#0f172a", width=2),
                                      marker=dict(size=7)))
         fig_wk.add_hline(y=0, line_dash="dot", line_color="#8b949e")
         fig_wk.update_layout(**{**CHART, "barmode":"stack", "height":300,
-                                "yaxis":dict(gridcolor="#21262d", title="PKR M"),
-                                "xaxis":dict(gridcolor="#21262d", tickangle=-30, tickfont=dict(size=9))})
+                              "yaxis":dict(gridcolor="#e2e8f0", title="PKR M"),
+                              "xaxis":dict(gridcolor="#e2e8f0", tickangle=-30, tickfont=dict(size=9))})
         st.plotly_chart(fig_wk, use_container_width=True)
 
         # Weekly balance bar
@@ -1507,8 +1632,8 @@ Closing balance grows from {pkr(d['cash_bank'])} to <b>{pkr(end_bal)}</b> as WC 
                                    textposition="outside", cliponaxis=False))
         fig_wb.add_hline(y=0, line_dash="dash", line_color="#f85149")
         fig_wb.update_layout(**{**CHART, "height":260, "showlegend":False,
-                                "yaxis":dict(gridcolor="#21262d", title="PKR M"),
-                                "xaxis":dict(gridcolor="#21262d", tickangle=-30, tickfont=dict(size=9))})
+                                "yaxis":dict(gridcolor="#e2e8f0", title="PKR M"),
+                                "xaxis":dict(gridcolor="#e2e8f0", tickangle=-30, tickfont=dict(size=9))})
         st.plotly_chart(fig_wb, use_container_width=True)
 
     # ── Methodology note ──────────────────────────────────────────────────────
